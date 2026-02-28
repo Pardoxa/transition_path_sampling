@@ -88,8 +88,7 @@ impl Ensemble {
             p_x: 0.0,
             p_y: 0.0,
         });
-        let two_pi = 2.0 * std::f64::consts::PI;
-        let step = two_pi / 6.0;
+        let step = std::f64::consts::PI / 3.0;
         particles.extend((0..6).map(|i| {
             let theta = (i as f64) * step;
             Particle {

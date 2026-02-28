@@ -32,8 +32,7 @@ pub struct Particle {
 
 impl Particle {
     pub fn kinetic_energy(&self) -> f64 {
-        let impuls = (self.p_x * self.p_x + self.p_y * self.p_y).sqrt();
-        impuls * impuls
+        self.p_x * self.p_x + self.p_y * self.p_y
     }
 
     /// The potential energy resulting from the Lennard jones potential

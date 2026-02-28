@@ -128,10 +128,10 @@ impl Ensemble {
         energy_sum
     }
 
-    fn forces(&self) -> Vec<f64> {
+    fn forces(&self) -> Vec<[f64; 2]> {
         // Ableitung der impulse als summe aller paar-ableitungen berechnen
         let mut impuls_ableitung: Vec<_> = (0..self.particles.len())
-            .flat_map(|i| {
+            .map(|i| {
                 let left = &self.particles[0..i];
                 let this = &self.particles[i];
                 let right = self.particles.get(i + 1..);
@@ -166,10 +166,10 @@ impl Ensemble {
         // update location
         self.particles
             .iter_mut()
-            .zip(current_forces.chunks_exact(2))
-            .for_each(|(particle, force)| {
-                particle.x += delta_time * particle.p_x + delta_time_sq_div_2 * force[0];
-                particle.y += delta_time * particle.p_y + delta_time_sq_div_2 * force[1];
+            .zip(current_forces.iter())
+            .for_each(|(particle, &[fx, fy])| {
+                particle.x += delta_time * particle.p_x + delta_time_sq_div_2 * fx;
+                particle.y += delta_time * particle.p_y + delta_time_sq_div_2 * fy;
             });
 
         let future_forces = self.forces();
@@ -177,8 +177,8 @@ impl Ensemble {
         // Update impulses
         self.particles
             .iter_mut()
-            .zip(current_forces.chunks_exact(2))
-            .zip(future_forces.chunks_exact(2))
+            .zip(current_forces)
+            .zip(future_forces)
             .for_each(|((particle, current_force), future_force)| {
                 particle.p_x += delta_time_sq_div_2 * (current_force[0] + future_force[0]);
                 particle.p_y += delta_time_sq_div_2 * (current_force[1] + future_force[1]);

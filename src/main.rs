@@ -140,9 +140,10 @@ impl Ensemble {
                 let mut derivative = [0.0; 2];
 
                 for particle in left.iter().chain(right_iter) {
-                    let d = this.deriviative(particle);
-                    derivative[0] += d[0];
-                    derivative[1] += d[1];
+                    derivative
+                        .iter_mut()
+                        .zip(this.deriviative(particle))
+                        .for_each(|(a, b)| *a += b);
                 }
 
                 derivative

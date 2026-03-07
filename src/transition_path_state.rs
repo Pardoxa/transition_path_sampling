@@ -4,7 +4,6 @@ use rand_pcg::Pcg64Mcg;
 use rayon::prelude::*;
 
 const MAX_INIT_ATTEMPTS: usize = 10_000;
-const MAX_RESTARTS: usize = 20;
 const RNG_SEED: u128 = 0x7A6D_1C4B_92EF_0042_1B3E_9D17_55AA_3101;
 const POSITION_WIGGLE_SCALE: f64 = 0.03;
 const MOMENTUM_WIGGLE_SCALE: f64 = 0.03;
@@ -33,8 +32,10 @@ impl TransitionPathState {
         region_b: TargetRegion,
         delta_t: f64,
         number_of_steps: usize,
+        number_of_restarts: usize,
     ) -> Option<Self> {
-        if !delta_t.is_finite() || delta_t <= 0.0 || number_of_steps == 0 {
+        if !delta_t.is_finite() || delta_t <= 0.0 || number_of_steps == 0 || number_of_restarts == 0
+        {
             return None;
         }
 
@@ -64,60 +65,73 @@ impl TransitionPathState {
             });
         }
 
-        println!("try_init: running {} restarts in parallel", MAX_RESTARTS);
+        let num_cpu_threads = std::thread::available_parallelism()
+            .map(|parallelism| parallelism.get())
+            .unwrap_or(1);
+        println!(
+            "try_init: running {} restarts in batches of {}",
+            number_of_restarts, num_cpu_threads
+        );
 
-        let mut outcomes: Vec<_> = (1..=MAX_RESTARTS)
-            .into_par_iter()
-            .map(|restart| {
-                greedy_search_from_start(
-                    initial_start.clone(),
+        let restart_indices: Vec<usize> = (1..=number_of_restarts).collect();
+        for batch in restart_indices.chunks(num_cpu_threads) {
+            let batch_first = *batch.first().expect("non-empty batch expected");
+            let batch_last = *batch.last().expect("non-empty batch expected");
+            println!("try_init: running batch {}..={}", batch_first, batch_last);
+
+            let mut outcomes: Vec<_> = batch
+                .par_iter()
+                .map(|&restart| {
+                    greedy_search_from_start(
+                        initial_start.clone(),
+                        region_a,
+                        region_b,
+                        delta_t,
+                        number_of_steps,
+                        restart,
+                    )
+                })
+                .collect();
+
+            outcomes.sort_by_key(|outcome| outcome.restart);
+
+            for outcome in &outcomes {
+                println!(
+                    "try_init: restart {} best distance {} (attempts {})",
+                    outcome.restart, outcome.best_distance, outcome.attempts_used
+                );
+
+                if outcome.best_distance < global_best_distance {
+                    global_best_start = outcome.best_start.clone();
+                    global_best_distance = outcome.best_distance;
+                    println!(
+                        "try_init: restart {} improved global best distance to {}",
+                        outcome.restart, global_best_distance
+                    );
+                }
+            }
+
+            if let Some(success_outcome) = outcomes
+                .iter()
+                .find(|outcome| outcome.success_start.is_some())
+            {
+                let success_start = success_outcome
+                    .success_start
+                    .as_ref()
+                    .expect("success outcome without state")
+                    .clone();
+                println!(
+                    "try_init: success in restart {} after {} attempts",
+                    success_outcome.restart, success_outcome.attempts_used
+                );
+                return Some(Self {
+                    ensemble: success_start,
                     region_a,
                     region_b,
                     delta_t,
                     number_of_steps,
-                    restart,
-                )
-            })
-            .collect();
-
-        outcomes.sort_by_key(|outcome| outcome.restart);
-
-        for outcome in &outcomes {
-            println!(
-                "try_init: restart {} best distance {} (attempts {})",
-                outcome.restart, outcome.best_distance, outcome.attempts_used
-            );
-
-            if outcome.best_distance < global_best_distance {
-                global_best_start = outcome.best_start.clone();
-                global_best_distance = outcome.best_distance;
-                println!(
-                    "try_init: restart {} improved global best distance to {}",
-                    outcome.restart, global_best_distance
-                );
+                });
             }
-        }
-
-        if let Some(success_outcome) = outcomes
-            .iter()
-            .find(|outcome| outcome.success_start.is_some())
-        {
-            let success_start = success_outcome
-                .success_start
-                .as_ref()
-                .expect("success outcome without state")
-                .clone();
-            println!(
-                "try_init: success in restart {} after {} attempts",
-                success_outcome.restart, success_outcome.attempts_used
-            );
-            return Some(Self {
-                ensemble: success_start,
-                region_a,
-                region_b,
-                delta_t,
-                number_of_steps,
-            });
         }
 
         let final_steps = number_of_steps.checked_mul(2)?;
@@ -145,7 +159,7 @@ impl TransitionPathState {
 
         println!(
             "try_init: failed after {} restarts; best distance = {}",
-            MAX_RESTARTS, global_best_distance
+            number_of_restarts, global_best_distance
         );
 
         None

@@ -34,7 +34,7 @@ fn main() {
         allowed_deviation: 0.3,
     };
     let transition_state =
-        TransitionPathState::try_init(ensemble, region_a, region_b, 0.001, 10_000)
+        TransitionPathState::try_init(ensemble, region_a, region_b, 0.001, 10_000, 48)
             .expect("could not initialize transition path state");
 
     println!("start H = {}", transition_state.ensemble.hamiltonian());

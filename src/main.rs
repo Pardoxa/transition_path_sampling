@@ -28,5 +28,5 @@ fn main() {
 
     let file = std::fs::File::create("test.dat").unwrap();
     let buf = BufWriter::new(file);
-    ensemble.write_positions(buf);
+    ensemble.write_positions(buf).unwrap();
 }

@@ -4,6 +4,7 @@
 use std::io::Write;
 
 const RADIUS_NEAR_GROUNDSTATE: f64 = 1.1185;
+const MIN_R_2: f64 = 1.0e-12;
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct Particle {
@@ -22,7 +23,10 @@ impl Particle {
     pub fn potential_energy(&self, other: &Self) -> f64 {
         let x = self.x - other.x;
         let y = self.y - other.y;
-        let r_2 = x * x + y * y;
+        let mut r_2 = x * x + y * y;
+        if r_2 < MIN_R_2 {
+            r_2 = MIN_R_2;
+        }
 
         let r_6 = r_2 * r_2 * r_2;
 
@@ -44,7 +48,10 @@ fn force(x1: f64, x2: f64, y1: f64, y2: f64) -> f64 {
     let x_diff_sq = x_diff * x_diff;
     let y_diff = y1 - y2;
     let y_diff_sq = y_diff * y_diff;
-    let x_diff_sq_plus_y_diff_sq = x_diff_sq + y_diff_sq;
+    let mut x_diff_sq_plus_y_diff_sq = x_diff_sq + y_diff_sq;
+    if x_diff_sq_plus_y_diff_sq < MIN_R_2 {
+        x_diff_sq_plus_y_diff_sq = MIN_R_2;
+    }
     let x_diff_sq_plus_y_diff_sq_pow2 = x_diff_sq_plus_y_diff_sq * x_diff_sq_plus_y_diff_sq;
     let oben = 6.0 * x_diff * (2.0 - x_diff_sq_plus_y_diff_sq_pow2 * x_diff_sq_plus_y_diff_sq);
     let unten = x_diff_sq_plus_y_diff_sq_pow2
@@ -61,9 +68,7 @@ pub struct Ensemble {
 }
 
 impl Ensemble {
-
-    pub fn minimum_fig2() -> Self
-    {
+    pub fn minimum_fig2() -> Self {
         let r = RADIUS_NEAR_GROUNDSTATE;
         let mut particles = Vec::with_capacity(7);
         // center particle
@@ -74,11 +79,11 @@ impl Ensemble {
             p_y: 0.0,
         });
         let angle_triangle = std::f64::consts::FRAC_PI_6;
-        particles.push(Particle { 
-            x: 0.0, 
-            y: angle_triangle.cos() * r * 2.0, 
-            p_x: 0.0, 
-            p_y: 0.0 
+        particles.push(Particle {
+            x: 0.0,
+            y: angle_triangle.cos() * r * 2.0,
+            p_x: 0.0,
+            p_y: 0.0,
         });
         let step = std::f64::consts::FRAC_PI_3;
         particles.extend((0..5).map(|i| {
@@ -95,11 +100,11 @@ impl Ensemble {
             current_time: 0.0,
         };
         ensemble.find_local_minima(100);
+        ensemble.current_time = 0.0;
         ensemble
     }
 
-    pub fn minimum_fig3() -> Self
-    {
+    pub fn minimum_fig3() -> Self {
         let r = RADIUS_NEAR_GROUNDSTATE;
         let mut particles = Vec::with_capacity(7);
         // center particle
@@ -110,11 +115,11 @@ impl Ensemble {
             p_y: 0.0,
         });
         let angle_triangle = std::f64::consts::FRAC_PI_6;
-        particles.push(Particle { 
-            x: - angle_triangle.sin() * r * 3.0, 
-            y: angle_triangle.cos() * r, 
-            p_x: 0.0, 
-            p_y: 0.0 
+        particles.push(Particle {
+            x: -angle_triangle.sin() * r * 3.0,
+            y: angle_triangle.cos() * r,
+            p_x: 0.0,
+            p_y: 0.0,
         });
         let step = std::f64::consts::FRAC_PI_3;
         particles.extend((0..5).map(|i| {
@@ -131,12 +136,11 @@ impl Ensemble {
             current_time: 0.0,
         };
         ensemble.find_local_minima(1000);
+        ensemble.current_time = 0.0;
         ensemble
     }
 
-    
-    pub fn new_groundstate() -> Self
-    {
+    pub fn new_groundstate() -> Self {
         let mut particles = Vec::with_capacity(7);
         // center particle
         particles.push(Particle {
@@ -160,34 +164,28 @@ impl Ensemble {
             current_time: 0.0,
         };
         ensemble.find_local_minima(100);
+        ensemble.current_time = 0.0;
         ensemble
     }
 
-    // Angenommen ich bin in der Nähe eines Minimums. 
+    // Angenommen ich bin in der Nähe eines Minimums.
     // Dann sollte ich durch: Bewegungsgleichung ein bisschen verfolgen
     // + impuls abschneiden näher zum Minimum kommen.
     // Und das iteriere ich einfach ein paar mal
-    fn find_local_minima(&mut self, iterations: usize)
-    {
-        for _ in 0..iterations{
-            for _ in 0..100{
+    fn find_local_minima(&mut self, iterations: usize) {
+        for _ in 0..iterations {
+            for _ in 0..100 {
                 self.velocity_verlet_step_by(0.001);
             }
             self.set_impuls_0();
         }
     }
 
-    pub fn set_impuls_0(&mut self)
-    {
-        self.particles
-            .iter_mut()
-            .for_each(
-                |particle|
-                {
-                    particle.p_x = 0.0;
-                    particle.p_y = 0.0;
-                }
-            );
+    pub fn set_impuls_0(&mut self) {
+        self.particles.iter_mut().for_each(|particle| {
+            particle.p_x = 0.0;
+            particle.p_y = 0.0;
+        });
     }
 
     pub fn hamiltonian(&self) -> f64 {
@@ -270,18 +268,18 @@ impl Ensemble {
         self.current_time += delta_time;
     }
 
-    pub fn write<W: Write>(&self, mut writer: W) {
-        write!(writer, "{} ", self.current_time).unwrap();
+    pub fn write<W: Write>(&self, mut writer: W) -> std::io::Result<()> {
+        write!(writer, "{} ", self.current_time)?;
         for particle in self.particles.iter() {
-            write!(writer, "{} {} ", particle.x, particle.y).unwrap();
+            write!(writer, "{} {} ", particle.x, particle.y)?;
         }
-        writeln!(writer).unwrap()
+        writeln!(writer)
     }
 
-    pub fn write_positions<W: Write>(&self, mut writer: W) {
+    pub fn write_positions<W: Write>(&self, mut writer: W) -> std::io::Result<()> {
         for particle in self.particles.iter() {
-            write!(writer, "{} {} ", particle.x, particle.y).unwrap();
+            write!(writer, "{} {} ", particle.x, particle.y)?;
         }
-        writeln!(writer).unwrap()
+        writeln!(writer)
     }
 }

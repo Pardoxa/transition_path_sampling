@@ -1,6 +1,7 @@
 // Bolhuis 1998
 // Masse auf 1 gesetzt
 
+use rand::RngExt;
 use std::io::Write;
 
 const RADIUS_NEAR_GROUNDSTATE: f64 = 1.1185;
@@ -282,4 +283,106 @@ impl Ensemble {
         }
         writeln!(writer)
     }
+
+    pub fn random_wiggle<R: RngExt + ?Sized>(
+        &mut self,
+        rng: &mut R,
+        position_scale: f64,
+        momentum_scale: f64,
+        wiggle_positions: bool,
+        wiggle_momenta: bool,
+    ) {
+        let wiggle_positions =
+            wiggle_positions && position_scale.is_finite() && position_scale > 0.0;
+        let wiggle_momenta = wiggle_momenta && momentum_scale.is_finite() && momentum_scale > 0.0;
+
+        if !wiggle_positions && !wiggle_momenta {
+            return;
+        }
+
+        for particle in self.particles.iter_mut() {
+            if wiggle_positions {
+                particle.x += rng.random_range(-position_scale..position_scale);
+                particle.y += rng.random_range(-position_scale..position_scale);
+            }
+
+            if wiggle_momenta {
+                particle.p_x += rng.random_range(-momentum_scale..momentum_scale);
+                particle.p_y += rng.random_range(-momentum_scale..momentum_scale);
+            }
+        }
+
+        self.current_time = 0.0;
+    }
+
+    pub fn distance_to_region(&self, target_region: TargetRegion) -> f64 {
+        let deviation = (self.potential_energy() - target_region.potential_energy).abs();
+        (deviation - target_region.allowed_deviation).max(0.0)
+    }
+
+    pub fn close_to_region(&self, target_region: TargetRegion) -> bool {
+        self.distance_to_region(target_region) <= 0.0
+    }
+
+    pub fn distance_to_hamiltonian_region(&self, target_region: TargetRegion) -> f64 {
+        let deviation = (self.hamiltonian() - target_region.potential_energy).abs();
+        (deviation - target_region.allowed_deviation).max(0.0)
+    }
+
+    pub fn set_momentum_to_region(
+        &mut self,
+        target_region: TargetRegion,
+    ) -> Result<(), MomentumRegionError> {
+        if !target_region.allowed_deviation.is_finite()
+            || !target_region.potential_energy.is_finite()
+            || target_region.allowed_deviation < 0.0
+        {
+            return Err(MomentumRegionError::InvalidTargetRegion);
+        }
+
+        let potential_energy = self.potential_energy();
+        let min_total_energy = target_region.potential_energy - target_region.allowed_deviation;
+        let max_total_energy = target_region.potential_energy + target_region.allowed_deviation;
+
+        if potential_energy > max_total_energy {
+            return Err(MomentumRegionError::PotentialTooHigh {
+                potential_energy,
+                max_total_energy,
+            });
+        }
+
+        self.set_impuls_0();
+
+        if potential_energy < min_total_energy {
+            let needed_kinetic_energy = min_total_energy - potential_energy;
+            let first_particle = self
+                .particles
+                .first_mut()
+                .ok_or(MomentumRegionError::NoParticles)?;
+            first_particle.p_x = (2.0 * needed_kinetic_energy).sqrt();
+        }
+
+        if self.distance_to_hamiltonian_region(target_region) <= 0.0 {
+            Ok(())
+        } else {
+            Err(MomentumRegionError::NumericalMiss)
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MomentumRegionError {
+    InvalidTargetRegion,
+    PotentialTooHigh {
+        potential_energy: f64,
+        max_total_energy: f64,
+    },
+    NoParticles,
+    NumericalMiss,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct TargetRegion {
+    pub potential_energy: f64,
+    pub allowed_deviation: f64,
 }

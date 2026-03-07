@@ -1,4 +1,5 @@
 pub mod particle;
+pub mod transition_path_state;
 
 use std::io::BufWriter;
 

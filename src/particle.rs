@@ -3,6 +3,8 @@
 
 use std::io::Write;
 
+const RADIUS_NEAR_GROUNDSTATE: f64 = 1.1185;
+
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct Particle {
     x: f64,
@@ -13,7 +15,9 @@ pub struct Particle {
 
 impl Particle {
     pub fn kinetic_energy(&self) -> f64 {
-        self.p_x * self.p_x + self.p_y * self.p_y
+        // Muss hier noch ein *0.5 hin? Im paper fehlt das meiner Meinung nach.
+        // Hätte dann auch auswirkungen auf eine der Ableitungen
+        self.p_x * self.p_x + self.p_y * self.p_y 
     }
 
     /// The potential energy resulting from the Lennard jones potential
@@ -22,12 +26,11 @@ impl Particle {
         let y = self.y - other.y;
         let r_2 = x * x + y * y;
 
-        let recip_r_2 = r_2.recip();
+        let r_6 = r_2 * r_2 * r_2;
 
-        let recip_r_6 = recip_r_2 * recip_r_2 * recip_r_2;
-        let recip_r_12 = recip_r_6 * recip_r_6;
+        let r_12 = r_6 * r_6;
 
-        4.0 * (recip_r_12 - recip_r_6)
+        4.0 * (r_12.recip() - r_6.recip())
     }
 
     pub fn deriviative(&self, other: &Self) -> [f64; 2] {
@@ -60,7 +63,10 @@ pub struct Ensemble {
 }
 
 impl Ensemble {
-    pub fn new(r: f64) -> Self {
+
+    pub fn minimum_fig2() -> Self
+    {
+        let r = RADIUS_NEAR_GROUNDSTATE;
         let mut particles = Vec::with_capacity(7);
         // center particle
         particles.push(Particle {
@@ -69,8 +75,15 @@ impl Ensemble {
             p_x: 0.0,
             p_y: 0.0,
         });
-        let step = std::f64::consts::PI / 3.0;
-        particles.extend((0..6).map(|i| {
+        let angle_triangle = std::f64::consts::FRAC_PI_6;
+        particles.push(Particle { 
+            x: 0.0, 
+            y: angle_triangle.cos() * r * 2.0, 
+            p_x: 0.0, 
+            p_y: 0.0 
+        });
+        let step = std::f64::consts::FRAC_PI_3;
+        particles.extend((0..5).map(|i| {
             let theta = (i as f64) * step;
             Particle {
                 x: r * theta.cos(),
@@ -79,10 +92,104 @@ impl Ensemble {
                 p_y: 0.0,
             }
         }));
-        Ensemble {
+        let mut ensemble = Ensemble {
             particles,
             current_time: 0.0,
+        };
+        ensemble.find_local_minima(100);
+        ensemble
+    }
+
+    pub fn minimum_fig3() -> Self
+    {
+        let r = RADIUS_NEAR_GROUNDSTATE;
+        let mut particles = Vec::with_capacity(7);
+        // center particle
+        particles.push(Particle {
+            x: 0.0,
+            y: 0.0,
+            p_x: 0.0,
+            p_y: 0.0,
+        });
+        let angle_triangle = std::f64::consts::FRAC_PI_6;
+        particles.push(Particle { 
+            x: - angle_triangle.sin() * r * 3.0, 
+            y: angle_triangle.cos() * r, 
+            p_x: 0.0, 
+            p_y: 0.0 
+        });
+        let step = std::f64::consts::FRAC_PI_3;
+        particles.extend((0..5).map(|i| {
+            let theta = (i as f64) * step;
+            Particle {
+                x: r * theta.cos(),
+                y: r * theta.sin(),
+                p_x: 0.0,
+                p_y: 0.0,
+            }
+        }));
+        let mut ensemble = Ensemble {
+            particles,
+            current_time: 0.0,
+        };
+        ensemble.find_local_minima(1000);
+        ensemble
+    }
+
+    
+    pub fn new_groundstate() -> Self
+    {
+        let mut particles = Vec::with_capacity(7);
+        // center particle
+        particles.push(Particle {
+            x: 0.0,
+            y: 0.0,
+            p_x: 0.0,
+            p_y: 0.0,
+        });
+        let step = std::f64::consts::FRAC_PI_3;
+        particles.extend((0..6).map(|i| {
+            let theta = (i as f64) * step;
+            Particle {
+                x: RADIUS_NEAR_GROUNDSTATE * theta.cos(),
+                y: RADIUS_NEAR_GROUNDSTATE * theta.sin(),
+                p_x: 0.0,
+                p_y: 0.0,
+            }
+        }));
+        let mut ensemble = Ensemble {
+            particles,
+            current_time: 0.0,
+        };
+        ensemble.find_local_minima(100);
+        ensemble
+    }
+
+    // Angenommen ich bin in der Nähe eines Minimums. 
+    // Dann sollte ich durch: Bewegungsgleichung ein bisschen verfolgen
+    // + impuls abschneiden näher zum Minimum kommen.
+    // Und das iteriere ich einfach ein paar mal
+    fn find_local_minima(&mut self, iterations: usize)
+    {
+        for _ in 0..iterations{
+            for _ in 0..100{
+                self.velocity_verlet_step_by(0.001);
+            }
+            self.set_impuls_0();
         }
+    }
+
+    pub fn set_impuls_0(&mut self)
+    {
+        self.particles
+            .iter_mut()
+            .for_each(
+                |particle|
+                {
+                    particle.p_x = 0.0;
+                    particle.p_y = 0.0;
+                }
+            );
     }
 
     pub fn hamiltonian(&self) -> f64 {
@@ -169,6 +276,13 @@ impl Ensemble {
 
     pub fn write<W: Write>(&self, mut writer: W) {
         write!(writer, "{} ", self.current_time).unwrap();
+        for particle in self.particles.iter() {
+            write!(writer, "{} {} ", particle.x, particle.y).unwrap();
+        }
+        writeln!(writer).unwrap()
+    }
+
+    pub fn write_positions<W: Write>(&self, mut writer: W) {
         for particle in self.particles.iter() {
             write!(writer, "{} {} ", particle.x, particle.y).unwrap();
         }

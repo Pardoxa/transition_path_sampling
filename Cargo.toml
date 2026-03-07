@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 rand = "0.10"
 rand_pcg = "0.10.1"
+rayon = "1.11"

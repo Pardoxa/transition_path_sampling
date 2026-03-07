@@ -68,6 +68,13 @@ pub struct Ensemble {
     current_time: f64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WiggleMode {
+    Positions,
+    Momenta,
+    PositionsAndMomenta,
+}
+
 impl Ensemble {
     pub fn minimum_fig2() -> Self {
         let r = RADIUS_NEAR_GROUNDSTATE;
@@ -289,30 +296,31 @@ impl Ensemble {
         rng: &mut R,
         position_scale: f64,
         momentum_scale: f64,
-        wiggle_positions: bool,
-        wiggle_momenta: bool,
+        mode: WiggleMode,
     ) {
-        let wiggle_positions =
-            wiggle_positions && position_scale.is_finite() && position_scale > 0.0;
-        let wiggle_momenta = wiggle_momenta && momentum_scale.is_finite() && momentum_scale > 0.0;
-
-        if !wiggle_positions && !wiggle_momenta {
+        if self.particles.is_empty() {
             return;
         }
 
-        for particle in self.particles.iter_mut() {
-            if wiggle_positions {
+        let index = rng.random_range(0..self.particles.len());
+        let particle = &mut self.particles[index];
+
+        match mode {
+            WiggleMode::Positions => {
                 particle.x += rng.random_range(-position_scale..position_scale);
                 particle.y += rng.random_range(-position_scale..position_scale);
             }
-
-            if wiggle_momenta {
+            WiggleMode::Momenta => {
+                particle.p_x += rng.random_range(-momentum_scale..momentum_scale);
+                particle.p_y += rng.random_range(-momentum_scale..momentum_scale);
+            }
+            WiggleMode::PositionsAndMomenta => {
+                particle.x += rng.random_range(-position_scale..position_scale);
+                particle.y += rng.random_range(-position_scale..position_scale);
                 particle.p_x += rng.random_range(-momentum_scale..momentum_scale);
                 particle.p_y += rng.random_range(-momentum_scale..momentum_scale);
             }
         }
-
-        self.current_time = 0.0;
     }
 
     pub fn distance_to_region(&self, target_region: TargetRegion) -> f64 {

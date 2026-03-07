@@ -4,6 +4,7 @@ pub mod transition_path_state;
 use std::io::BufWriter;
 
 use particle::*;
+use transition_path_state::*;
 
 fn main() {
     // for i in 1..1000{
@@ -23,11 +24,23 @@ fn main() {
     //     }
     // }
 
-    let ensemble = Ensemble::minimum_fig3();
-    let energy = ensemble.hamiltonian();
-    println!("{energy}");
+    let ensemble = Ensemble::new_groundstate();
+    let region_a = TargetRegion {
+        potential_energy: -12.53,
+        allowed_deviation: 0.3,
+    };
+    let region_b = TargetRegion {
+        potential_energy: -11.5,
+        allowed_deviation: 0.3,
+    };
+    let transition_state =
+        TransitionPathState::try_init(ensemble, region_a, region_b, 0.001, 10_000)
+            .expect("could not initialize transition path state");
+
+    println!("start H = {}", transition_state.ensemble.hamiltonian());
+    println!("start V = {}", transition_state.ensemble.potential_energy());
 
     let file = std::fs::File::create("test.dat").unwrap();
     let buf = BufWriter::new(file);
-    ensemble.write_positions(buf).unwrap();
+    transition_state.ensemble.write_positions(buf).unwrap();
 }

@@ -17,7 +17,7 @@ impl Particle {
     pub fn kinetic_energy(&self) -> f64 {
         // Muss hier noch ein *0.5 hin? Im paper fehlt das meiner Meinung nach.
         // Hätte dann auch auswirkungen auf eine der Ableitungen
-        self.p_x * self.p_x + self.p_y * self.p_y 
+        (self.p_x * self.p_x + self.p_y * self.p_y) * 0.5
     }
 
     /// The potential energy resulting from the Lennard jones potential
@@ -244,10 +244,12 @@ impl Ensemble {
     }
 
     // Nun velocity verlet: https://www.thp.uni-koeln.de/trebst/PracticalCourse/molecular_dynamics/molecular_dynamics.pdf
+    // https://www.algorithm-archive.org/contents/verlet_integration/verlet_integration.html
     pub fn velocity_verlet_step_by(&mut self, delta_time: f64) {
         // Nun habe ich alle ableitungen.
         let current_forces: Vec<_> = self.forces();
 
+        let delta_time_2 = delta_time * 0.5;
         let delta_time_sq_div_2 = delta_time * delta_time * 0.5;
 
         // update location
@@ -267,8 +269,8 @@ impl Ensemble {
             .zip(current_forces)
             .zip(future_forces)
             .for_each(|((particle, current_force), future_force)| {
-                particle.p_x += delta_time_sq_div_2 * (current_force[0] + future_force[0]);
-                particle.p_y += delta_time_sq_div_2 * (current_force[1] + future_force[1]);
+                particle.p_x += delta_time_2 * (current_force[0] + future_force[0]);
+                particle.p_y += delta_time_2 * (current_force[1] + future_force[1]);
             });
 
         self.current_time += delta_time;

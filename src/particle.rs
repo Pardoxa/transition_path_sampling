@@ -31,14 +31,14 @@ impl Particle {
         4.0 * (r_12.recip() - r_6.recip())
     }
 
-    pub fn deriviative(&self, other: &Self) -> [f64; 2] {
-        let x_derivative = derivative(self.x, other.x, self.y, other.y);
-        let y_derivative = derivative(self.y, other.y, self.x, other.x);
+    pub fn force(&self, other: &Self) -> [f64; 2] {
+        let x_derivative = force(self.x, other.x, self.y, other.y);
+        let y_derivative = force(self.y, other.y, self.x, other.x);
         [x_derivative, y_derivative]
     }
 }
 
-fn derivative(x1: f64, x2: f64, y1: f64, y2: f64) -> f64 {
+fn force(x1: f64, x2: f64, y1: f64, y2: f64) -> f64 {
     // https://www.wolframalpha.com/input?i=d%2Fda+%281%2F%28%28%28a-x2%29%5E2%2B%28y1-y2%29%5E2%29%5E%283%29%29+-+1%2F%28%28%28a-x2%29%5E2%2B%28y1-y2%29%5E2%29%5E%286%29%29%29+
     let x_diff = x1 - x2;
     let x_diff_sq = x_diff * x_diff;
@@ -213,7 +213,7 @@ impl Ensemble {
     }
 
     fn forces(&self) -> Vec<[f64; 2]> {
-        // Ableitung der impulse als summe aller paar-ableitungen berechnen
+        // Forces als summe der forces
         let impuls_ableitung: Vec<_> = (0..self.particles.len())
             .map(|i| {
                 let left = &self.particles[0..i];
@@ -226,17 +226,13 @@ impl Ensemble {
                 for particle in left.iter().chain(right_iter) {
                     derivative
                         .iter_mut()
-                        .zip(this.deriviative(particle))
+                        .zip(this.force(particle))
                         .for_each(|(a, b)| *a += b);
                 }
 
                 derivative
             })
             .collect();
-        // Noch mit -1 multiplizieren, weil dp = - dH/dr (Hamilton)
-        // Anmerkung: Irgendwo anders scheine ich einen Vorzeichenfehler zu haben, darum habe ich diese Zeile
-        // auskommentiert. Ist vermutlich sogar effizienter XD
-        //impuls_ableitung.iter_mut().for_each(|entry| *entry = -*entry);
 
         impuls_ableitung
     }

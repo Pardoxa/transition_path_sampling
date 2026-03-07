@@ -15,8 +15,6 @@ pub struct Particle {
 
 impl Particle {
     pub fn kinetic_energy(&self) -> f64 {
-        // Muss hier noch ein *0.5 hin? Im paper fehlt das meiner Meinung nach.
-        // Hätte dann auch auswirkungen auf eine der Ableitungen
         (self.p_x * self.p_x + self.p_y * self.p_y) * 0.5
     }
 

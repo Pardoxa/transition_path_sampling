@@ -2,6 +2,7 @@ use crate::particle::*;
 use rand::RngExt;
 use rand_pcg::Pcg64Mcg;
 use rayon::prelude::*;
+use std::num::NonZeroUsize;
 
 const MAX_INIT_ATTEMPTS: usize = 10_000;
 const RNG_SEED: u128 = 0x7A6D_1C4B_92EF_0042_1B3E_9D17_55AA_3101;
@@ -37,6 +38,200 @@ pub struct ParticleImpulseSweepTuningResult {
     pub best_distance: f64,
     pub best_start: Ensemble,
     pub sweeps_completed: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct TransitionTuningConfig {
+    region_b: TargetRegion,
+    delta_t: f64,
+    number_of_steps: NonZeroUsize,
+    initial_scale: f64,
+    initial_step: f64,
+    scale_search_iterations: NonZeroUsize,
+    impulse_sweeps: NonZeroUsize,
+    angle_step: f64,
+    length_step_fraction: f64,
+    max_projection_repair_passes: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct TransitionTuningConfigBuilder {
+    region_b: TargetRegion,
+    delta_t: f64,
+    number_of_steps: NonZeroUsize,
+    initial_scale: f64,
+    initial_step: f64,
+    scale_search_iterations: NonZeroUsize,
+    impulse_sweeps: NonZeroUsize,
+    angle_step: f64,
+    length_step_fraction: f64,
+    max_projection_repair_passes: usize,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum TuningConfigErrorKind {
+    RegionBPotentialEnergyNotFinite(f64),
+    RegionBAllowedDeviationInvalid(f64),
+    DeltaTInvalid(f64),
+    InitialScaleInvalid(f64),
+    InitialStepInvalid(f64),
+    AngleStepInvalid(f64),
+    LengthStepFractionInvalid(f64),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TuningConfigBuildError {
+    pub errors: Vec<TuningConfigErrorKind>,
+}
+
+impl std::fmt::Display for TuningConfigBuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "invalid transition tuning config: {:?}", self.errors)
+    }
+}
+
+impl std::error::Error for TuningConfigBuildError {}
+
+impl Default for TransitionTuningConfigBuilder {
+    fn default() -> Self {
+        Self {
+            region_b: TargetRegion {
+                potential_energy: -11.47,
+                allowed_deviation: 0.01,
+            },
+            delta_t: 0.01,
+            number_of_steps: NonZeroUsize::new(20_000).expect("non-zero default"),
+            initial_scale: 0.2,
+            initial_step: 0.05,
+            scale_search_iterations: NonZeroUsize::new(30).expect("non-zero default"),
+            impulse_sweeps: NonZeroUsize::new(2).expect("non-zero default"),
+            angle_step: 0.08,
+            length_step_fraction: 0.10,
+            max_projection_repair_passes: 2,
+        }
+    }
+}
+
+impl TransitionTuningConfigBuilder {
+    /// Creates a builder with defaults matching the current tuning setup.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn region_b(mut self, region_b: TargetRegion) -> Self {
+        self.region_b = region_b;
+        self
+    }
+
+    pub fn delta_t(mut self, delta_t: f64) -> Self {
+        self.delta_t = delta_t;
+        self
+    }
+
+    pub fn number_of_steps(mut self, number_of_steps: NonZeroUsize) -> Self {
+        self.number_of_steps = number_of_steps;
+        self
+    }
+
+    pub fn initial_scale(mut self, initial_scale: f64) -> Self {
+        self.initial_scale = initial_scale;
+        self
+    }
+
+    pub fn initial_step(mut self, initial_step: f64) -> Self {
+        self.initial_step = initial_step;
+        self
+    }
+
+    pub fn scale_search_iterations(mut self, scale_search_iterations: NonZeroUsize) -> Self {
+        self.scale_search_iterations = scale_search_iterations;
+        self
+    }
+
+    pub fn impulse_sweeps(mut self, impulse_sweeps: NonZeroUsize) -> Self {
+        self.impulse_sweeps = impulse_sweeps;
+        self
+    }
+
+    pub fn angle_step(mut self, angle_step: f64) -> Self {
+        self.angle_step = angle_step;
+        self
+    }
+
+    pub fn length_step_fraction(mut self, length_step_fraction: f64) -> Self {
+        self.length_step_fraction = length_step_fraction;
+        self
+    }
+
+    pub fn max_projection_repair_passes(mut self, max_projection_repair_passes: usize) -> Self {
+        self.max_projection_repair_passes = max_projection_repair_passes;
+        self
+    }
+
+    /// Validates all configured parameters and builds an immutable tuning
+    /// configuration.
+    pub fn build(self) -> Result<TransitionTuningConfig, TuningConfigBuildError> {
+        let mut errors = Vec::new();
+
+        if !self.region_b.potential_energy.is_finite() {
+            errors.push(TuningConfigErrorKind::RegionBPotentialEnergyNotFinite(
+                self.region_b.potential_energy,
+            ));
+        }
+
+        if !self.region_b.allowed_deviation.is_finite() || self.region_b.allowed_deviation < 0.0 {
+            errors.push(TuningConfigErrorKind::RegionBAllowedDeviationInvalid(
+                self.region_b.allowed_deviation,
+            ));
+        }
+
+        if !self.delta_t.is_finite() || self.delta_t <= 0.0 {
+            errors.push(TuningConfigErrorKind::DeltaTInvalid(self.delta_t));
+        }
+
+        if !self.initial_scale.is_finite() || self.initial_scale < 0.0 {
+            errors.push(TuningConfigErrorKind::InitialScaleInvalid(
+                self.initial_scale,
+            ));
+        }
+
+        if !self.initial_step.is_finite() || self.initial_step <= 0.0 {
+            errors.push(TuningConfigErrorKind::InitialStepInvalid(self.initial_step));
+        }
+
+        if !self.angle_step.is_finite() || self.angle_step <= 0.0 {
+            errors.push(TuningConfigErrorKind::AngleStepInvalid(self.angle_step));
+        }
+
+        if !self.length_step_fraction.is_finite() || self.length_step_fraction <= 0.0 {
+            errors.push(TuningConfigErrorKind::LengthStepFractionInvalid(
+                self.length_step_fraction,
+            ));
+        }
+
+        if !errors.is_empty() {
+            return Err(TuningConfigBuildError { errors });
+        }
+
+        Ok(TransitionTuningConfig {
+            region_b: self.region_b,
+            delta_t: self.delta_t,
+            number_of_steps: self.number_of_steps,
+            initial_scale: self.initial_scale,
+            initial_step: self.initial_step,
+            scale_search_iterations: self.scale_search_iterations,
+            impulse_sweeps: self.impulse_sweeps,
+            angle_step: self.angle_step,
+            length_step_fraction: self.length_step_fraction,
+            max_projection_repair_passes: self.max_projection_repair_passes,
+        })
+    }
+}
+
+impl TransitionTuningConfig {
+    pub fn builder() -> TransitionTuningConfigBuilder {
+        TransitionTuningConfigBuilder::new()
+    }
 }
 
 impl TransitionPathState {
@@ -339,227 +534,195 @@ struct KickCandidate {
     start: Ensemble,
 }
 
-/// Tunes a single global kick scale for
-/// `Ensemble::new_groundstate_kicked_towards_fig3` using an adaptive 3-point
-/// search (`scale-step`, `scale`, `scale+step`).
-///
-/// Returns the best scale, its terminal distance to region B, and the
-/// corresponding starting ensemble.
-pub fn tune_fig3_kick_scale_for_region_b(
-    region_b: TargetRegion,
-    delta_t: f64,
-    number_of_steps: usize,
-    initial_scale: f64,
-    initial_step: f64,
-    iterations: usize,
-) -> Option<KickScaleTuningResult> {
-    if !delta_t.is_finite() || delta_t <= 0.0 || number_of_steps == 0 || iterations == 0 {
-        return None;
-    }
+impl TransitionTuningConfig {
+    /// Tunes a single global kick scale for
+    /// `Ensemble::new_groundstate_kicked_towards_fig3` using an adaptive
+    /// 3-point search (`scale-step`, `scale`, `scale+step`).
+    pub fn tune_fig3_kick_scale_for_region_b(&self) -> KickScaleTuningResult {
+        let mut current_scale = self.initial_scale;
+        let mut step = self.initial_step;
 
-    if !initial_scale.is_finite() || !initial_step.is_finite() || initial_step <= 0.0 {
-        return None;
-    }
-
-    let mut current_scale = initial_scale.max(0.0);
-    let mut step = initial_step;
-
-    let initial_start = Ensemble::new_groundstate_kicked_towards_fig3(current_scale);
-    let mut best_distance =
-        terminal_distance_to_region_b(&initial_start, region_b, delta_t, number_of_steps);
-    let mut best_scale = current_scale;
-    let mut best_start = initial_start;
-
-    for _iteration_idx in 0..iterations {
-        let scales = [
-            (current_scale - step).max(0.0),
-            current_scale,
-            current_scale + step,
-        ];
-
-        let candidates: Vec<_> = scales
-            .par_iter()
-            .enumerate()
-            .map(|(index, &scale)| {
-                let start = Ensemble::new_groundstate_kicked_towards_fig3(scale);
-                let distance =
-                    terminal_distance_to_region_b(&start, region_b, delta_t, number_of_steps);
-                KickCandidate {
-                    index,
-                    scale,
-                    distance,
-                    start,
-                }
-            })
-            .collect();
-
-        let winner = select_best_candidate(&candidates);
-
-        #[cfg(feature = "kick_tuning_trace")]
-        println!(
-            "kick_tune iter={} scales=[{:.12}, {:.12}, {:.12}] dists=[{:.12}, {:.12}, {:.12}] best_scale={:.12} best_dist={:.12}",
-            _iteration_idx,
-            scales[0],
-            scales[1],
-            scales[2],
-            candidates[0].distance,
-            candidates[1].distance,
-            candidates[2].distance,
-            winner.scale,
-            winner.distance
+        let initial_start = Ensemble::new_groundstate_kicked_towards_fig3(current_scale);
+        let mut best_distance = terminal_distance_to_region_b(
+            &initial_start,
+            self.region_b,
+            self.delta_t,
+            self.number_of_steps.get(),
         );
+        let mut best_scale = current_scale;
+        let mut best_start = initial_start;
 
-        if winner.distance < best_distance {
-            best_distance = winner.distance;
-            best_scale = winner.scale;
-            best_start = winner.start.clone();
-        }
+        for _iteration_idx in 0..self.scale_search_iterations.get() {
+            let scales = [
+                (current_scale - step).max(0.0),
+                current_scale,
+                current_scale + step,
+            ];
 
-        if best_distance <= 0.0 {
-            break;
-        }
+            let candidates: Vec<_> = scales
+                .par_iter()
+                .enumerate()
+                .map(|(index, &scale)| {
+                    let start = Ensemble::new_groundstate_kicked_towards_fig3(scale);
+                    let distance = terminal_distance_to_region_b(
+                        &start,
+                        self.region_b,
+                        self.delta_t,
+                        self.number_of_steps.get(),
+                    );
+                    KickCandidate {
+                        index,
+                        scale,
+                        distance,
+                        start,
+                    }
+                })
+                .collect();
 
-        if winner.index == 1 {
-            step *= 0.5;
-        } else {
-            current_scale = winner.scale;
-            step *= 1.3;
-        }
-    }
+            let winner = select_best_candidate(&candidates);
 
-    Some(KickScaleTuningResult {
-        best_scale,
-        best_distance,
-        best_start,
-    })
-}
+            #[cfg(feature = "kick_tuning_trace")]
+            println!(
+                "kick_tune iter={} scales=[{:.12}, {:.12}, {:.12}] dists=[{:.12}, {:.12}, {:.12}] best_scale={:.12} best_dist={:.12}",
+                _iteration_idx,
+                scales[0],
+                scales[1],
+                scales[2],
+                candidates[0].distance,
+                candidates[1].distance,
+                candidates[2].distance,
+                winner.scale,
+                winner.distance
+            );
 
-/// Refines a kicked starting ensemble by local impulse search over multiple
-/// sweeps.
-///
-/// For each sweep, each particle is optimized in turn by trying small angle
-/// and length perturbations of its impulse. Candidate perturbations for one
-/// particle are evaluated in parallel and the best improving candidate is kept.
-///
-/// Each candidate is projected to zero net momentum before scoring so the
-/// optimization objective matches the preferred physical constraint.
-///
-/// After each full optimizer pass, a zero-net-momentum projection is checked.
-/// If that projection worsens the terminal distance to region B, another full
-/// pass is retried from the projected state, up to
-/// `max_projection_repair_passes` retries. This guarantees termination while
-/// preferring zero-net-momentum results when they are not worse.
-///
-/// If no acceptable zero-net-momentum result is found within the retry budget,
-/// the best unconstrained result is returned.
-pub fn tune_particle_impulses_by_sweeps_for_region_b(
-    start: Ensemble,
-    region_b: TargetRegion,
-    delta_t: f64,
-    number_of_steps: usize,
-    sweeps: usize,
-    angle_step: f64,
-    length_step_fraction: f64,
-    max_projection_repair_passes: usize,
-) -> Option<ParticleImpulseSweepTuningResult> {
-    if !delta_t.is_finite()
-        || delta_t <= 0.0
-        || number_of_steps == 0
-        || sweeps == 0
-        || !angle_step.is_finite()
-        || angle_step <= 0.0
-        || !length_step_fraction.is_finite()
-        || length_step_fraction <= 0.0
-    {
-        return None;
-    }
-
-    let mut current_pass_start = start;
-    let mut total_sweeps_completed = 0usize;
-
-    let initial_distance =
-        terminal_distance_to_region_b(&current_pass_start, region_b, delta_t, number_of_steps);
-    let mut best_unconstrained_start = current_pass_start.clone();
-    let mut best_unconstrained_distance = initial_distance;
-
-    let mut best_zero_momentum_candidate: Option<Ensemble> = None;
-    let mut best_zero_momentum_distance = f64::INFINITY;
-
-    for pass_idx in 0..=max_projection_repair_passes {
-        let unconstrained_pass_result = run_particle_impulse_sweeps_unconstrained(
-            current_pass_start,
-            region_b,
-            delta_t,
-            number_of_steps,
-            sweeps,
-            angle_step,
-            length_step_fraction,
-            pass_idx,
-        );
-        total_sweeps_completed += unconstrained_pass_result.sweeps_completed;
-
-        if unconstrained_pass_result.best_distance + 1.0e-12 < best_unconstrained_distance {
-            best_unconstrained_distance = unconstrained_pass_result.best_distance;
-            best_unconstrained_start = unconstrained_pass_result.best_start.clone();
-        }
-
-        let mut zero_momentum_candidate = unconstrained_pass_result.best_start.clone();
-        enforce_zero_net_momentum(&mut zero_momentum_candidate);
-        let zero_momentum_candidate_distance = terminal_distance_to_region_b(
-            &zero_momentum_candidate,
-            region_b,
-            delta_t,
-            number_of_steps,
-        );
-
-        if zero_momentum_candidate_distance + 1.0e-12 < best_zero_momentum_distance {
-            best_zero_momentum_distance = zero_momentum_candidate_distance;
-            best_zero_momentum_candidate = Some(zero_momentum_candidate.clone());
-        }
-
-        #[cfg(feature = "kick_tuning_trace")]
-        println!(
-            "particle_tune pass={} unconstrained={:.12} projected_zero_momentum={:.12}",
-            pass_idx, unconstrained_pass_result.best_distance, zero_momentum_candidate_distance
-        );
-
-        if zero_momentum_candidate_distance <= unconstrained_pass_result.best_distance + 1.0e-12 {
-            break;
-        }
-
-        if pass_idx == max_projection_repair_passes {
-            break;
-        }
-
-        current_pass_start = zero_momentum_candidate;
-    }
-
-    let (selected_start, selected_distance) =
-        if let Some(zero_momentum_candidate) = best_zero_momentum_candidate {
-            if best_zero_momentum_distance <= best_unconstrained_distance + 1.0e-12 {
-                #[cfg(feature = "kick_tuning_trace")]
-                println!(
-                    "particle_tune final=zero_momentum distance={:.12}",
-                    best_zero_momentum_distance
-                );
-                (zero_momentum_candidate, best_zero_momentum_distance)
-            } else {
-                #[cfg(feature = "kick_tuning_trace")]
-                println!(
-                    "particle_tune final=unconstrained_fallback distance={:.12}",
-                    best_unconstrained_distance
-                );
-                (best_unconstrained_start, best_unconstrained_distance)
+            if winner.distance < best_distance {
+                best_distance = winner.distance;
+                best_scale = winner.scale;
+                best_start = winner.start.clone();
             }
-        } else {
-            (best_unconstrained_start, best_unconstrained_distance)
-        };
 
-    Some(ParticleImpulseSweepTuningResult {
-        best_distance: selected_distance,
-        best_start: selected_start,
-        sweeps_completed: total_sweeps_completed,
-    })
+            if best_distance <= 0.0 {
+                break;
+            }
+
+            if winner.index == 1 {
+                step *= 0.5;
+            } else {
+                current_scale = winner.scale;
+                step *= 1.3;
+            }
+        }
+
+        KickScaleTuningResult {
+            best_scale,
+            best_distance,
+            best_start,
+        }
+    }
+
+    /// Refines a kicked starting ensemble by local impulse search over multiple
+    /// sweeps.
+    ///
+    /// For each sweep, each particle is optimized in turn by trying small angle
+    /// and length perturbations of its impulse. Candidate perturbations for one
+    /// particle are evaluated in parallel and the best improving candidate is
+    /// kept.
+    ///
+    /// Each candidate is projected to zero net momentum before scoring so the
+    /// optimization objective matches the preferred physical constraint.
+    ///
+    /// After each full optimizer pass, a zero-net-momentum projection is
+    /// checked. If that projection worsens the terminal distance to region B,
+    /// another full pass is retried from the projected state, up to
+    /// `max_projection_repair_passes` retries.
+    pub fn tune_particle_impulses_by_sweeps_for_region_b(
+        &self,
+        start: Ensemble,
+    ) -> ParticleImpulseSweepTuningResult {
+        let mut current_pass_start = start;
+        let mut total_sweeps_completed = 0usize;
+
+        let initial_distance = terminal_distance_to_region_b(
+            &current_pass_start,
+            self.region_b,
+            self.delta_t,
+            self.number_of_steps.get(),
+        );
+        let mut best_unconstrained_start = current_pass_start.clone();
+        let mut best_unconstrained_distance = initial_distance;
+
+        let mut best_zero_momentum_candidate: Option<Ensemble> = None;
+        let mut best_zero_momentum_distance = f64::INFINITY;
+
+        for pass_idx in 0..=self.max_projection_repair_passes {
+            let unconstrained_pass_result =
+                run_particle_impulse_sweeps_unconstrained(current_pass_start, self, pass_idx);
+            total_sweeps_completed += unconstrained_pass_result.sweeps_completed;
+
+            if unconstrained_pass_result.best_distance + 1.0e-12 < best_unconstrained_distance {
+                best_unconstrained_distance = unconstrained_pass_result.best_distance;
+                best_unconstrained_start = unconstrained_pass_result.best_start.clone();
+            }
+
+            let mut zero_momentum_candidate = unconstrained_pass_result.best_start.clone();
+            enforce_zero_net_momentum(&mut zero_momentum_candidate);
+            let zero_momentum_candidate_distance = terminal_distance_to_region_b(
+                &zero_momentum_candidate,
+                self.region_b,
+                self.delta_t,
+                self.number_of_steps.get(),
+            );
+
+            if zero_momentum_candidate_distance + 1.0e-12 < best_zero_momentum_distance {
+                best_zero_momentum_distance = zero_momentum_candidate_distance;
+                best_zero_momentum_candidate = Some(zero_momentum_candidate.clone());
+            }
+
+            #[cfg(feature = "kick_tuning_trace")]
+            println!(
+                "particle_tune pass={} unconstrained={:.12} projected_zero_momentum={:.12}",
+                pass_idx, unconstrained_pass_result.best_distance, zero_momentum_candidate_distance
+            );
+
+            if zero_momentum_candidate_distance <= unconstrained_pass_result.best_distance + 1.0e-12
+            {
+                break;
+            }
+
+            if pass_idx == self.max_projection_repair_passes {
+                break;
+            }
+
+            current_pass_start = zero_momentum_candidate;
+        }
+
+        let (selected_start, selected_distance) =
+            if let Some(zero_momentum_candidate) = best_zero_momentum_candidate {
+                if best_zero_momentum_distance <= best_unconstrained_distance + 1.0e-12 {
+                    #[cfg(feature = "kick_tuning_trace")]
+                    println!(
+                        "particle_tune final=zero_momentum distance={:.12}",
+                        best_zero_momentum_distance
+                    );
+                    (zero_momentum_candidate, best_zero_momentum_distance)
+                } else {
+                    #[cfg(feature = "kick_tuning_trace")]
+                    println!(
+                        "particle_tune final=unconstrained_fallback distance={:.12}",
+                        best_unconstrained_distance
+                    );
+                    (best_unconstrained_start, best_unconstrained_distance)
+                }
+            } else {
+                (best_unconstrained_start, best_unconstrained_distance)
+            };
+
+        ParticleImpulseSweepTuningResult {
+            best_distance: selected_distance,
+            best_start: selected_start,
+            sweeps_completed: total_sweeps_completed,
+        }
+    }
 }
 
 /// Runs one unconstrained particle-impulse sweep pass.
@@ -569,20 +732,19 @@ pub fn tune_particle_impulses_by_sweeps_for_region_b(
 /// scoring so the sweep objective matches the physical preference.
 fn run_particle_impulse_sweeps_unconstrained(
     start: Ensemble,
-    region_b: TargetRegion,
-    delta_t: f64,
-    number_of_steps: usize,
-    sweeps: usize,
-    angle_step: f64,
-    length_step_fraction: f64,
+    config: &TransitionTuningConfig,
     _pass_idx: usize,
 ) -> ParticleImpulseSweepTuningResult {
     let mut working = start;
-    let mut best_distance =
-        terminal_distance_to_region_b(&working, region_b, delta_t, number_of_steps);
+    let mut best_distance = terminal_distance_to_region_b(
+        &working,
+        config.region_b,
+        config.delta_t,
+        config.number_of_steps.get(),
+    );
     let mut sweeps_completed = 0usize;
 
-    for _sweep_idx in 0..sweeps {
+    for _sweep_idx in 0..config.impulse_sweeps.get() {
         if best_distance <= 0.0 {
             break;
         }
@@ -599,7 +761,7 @@ fn run_particle_impulse_sweeps_unconstrained(
             let particle = working.particles[particle_idx];
             let base_angle = particle.p_y.atan2(particle.p_x);
             let base_len = (particle.p_x * particle.p_x + particle.p_y * particle.p_y).sqrt();
-            let length_delta = (base_len * length_step_fraction).max(1.0e-4);
+            let length_delta = (base_len * config.length_step_fraction).max(1.0e-4);
 
             let angle_offsets = [-2.0, -1.0, 0.0, 1.0, 2.0];
             let length_offsets = [-length_delta, 0.0, length_delta];
@@ -608,7 +770,7 @@ fn run_particle_impulse_sweeps_unconstrained(
                 .iter()
                 .flat_map(|&angle_factor| {
                     length_offsets.iter().map(move |&length_offset| {
-                        (base_angle + angle_factor * angle_step, length_offset)
+                        (base_angle + angle_factor * config.angle_step, length_offset)
                     })
                 })
                 .collect();
@@ -623,9 +785,9 @@ fn run_particle_impulse_sweeps_unconstrained(
                     enforce_zero_net_momentum(&mut candidate);
                     let candidate_distance = terminal_distance_to_region_b(
                         &candidate,
-                        region_b,
-                        delta_t,
-                        number_of_steps,
+                        config.region_b,
+                        config.delta_t,
+                        config.number_of_steps.get(),
                     );
                     (candidate_distance, candidate)
                 })
@@ -741,32 +903,26 @@ fn enforce_zero_net_momentum(ensemble: &mut Ensemble) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::num::NonZeroUsize;
 
     #[test]
     fn kick_scale_tuning_does_not_worsen_result() {
-        let region_b = TargetRegion {
-            potential_energy: -11.47,
-            allowed_deviation: 0.01,
-        };
-        let delta_t = 0.01;
-        let number_of_steps = 500;
         let initial_scale = 0.2;
-        let initial_step = 0.05;
-        let iterations = 3;
+        let config = TransitionTuningConfig::builder()
+            .number_of_steps(NonZeroUsize::new(500).expect("non-zero"))
+            .scale_search_iterations(NonZeroUsize::new(3).expect("non-zero"))
+            .build()
+            .expect("valid config");
 
         let baseline_start = Ensemble::new_groundstate_kicked_towards_fig3(initial_scale);
-        let baseline_distance =
-            terminal_distance_to_region_b(&baseline_start, region_b, delta_t, number_of_steps);
+        let baseline_distance = terminal_distance_to_region_b(
+            &baseline_start,
+            config.region_b,
+            config.delta_t,
+            config.number_of_steps.get(),
+        );
 
-        let result = tune_fig3_kick_scale_for_region_b(
-            region_b,
-            delta_t,
-            number_of_steps,
-            initial_scale,
-            initial_step,
-            iterations,
-        )
-        .expect("valid tuning parameters should produce a result");
+        let result = config.tune_fig3_kick_scale_for_region_b();
 
         assert!(
             result.best_distance <= baseline_distance + 1.0e-12,
@@ -778,28 +934,21 @@ mod tests {
 
     #[test]
     fn particle_impulse_sweep_tuning_does_not_worsen_result() {
-        let region_b = TargetRegion {
-            potential_energy: -11.47,
-            allowed_deviation: 0.01,
-        };
-        let delta_t = 0.01;
-        let number_of_steps = 500;
+        let config = TransitionTuningConfig::builder()
+            .number_of_steps(NonZeroUsize::new(500).expect("non-zero"))
+            .impulse_sweeps(NonZeroUsize::new(2).expect("non-zero"))
+            .build()
+            .expect("valid config");
 
         let tuned_scale_start = Ensemble::new_groundstate_kicked_towards_fig3(0.8);
-        let baseline_distance =
-            terminal_distance_to_region_b(&tuned_scale_start, region_b, delta_t, number_of_steps);
+        let baseline_distance = terminal_distance_to_region_b(
+            &tuned_scale_start,
+            config.region_b,
+            config.delta_t,
+            config.number_of_steps.get(),
+        );
 
-        let result = tune_particle_impulses_by_sweeps_for_region_b(
-            tuned_scale_start,
-            region_b,
-            delta_t,
-            number_of_steps,
-            2,
-            0.08,
-            0.10,
-            2,
-        )
-        .expect("valid sweep tuning parameters should produce a result");
+        let result = config.tune_particle_impulses_by_sweeps_for_region_b(tuned_scale_start);
 
         assert!(
             result.best_distance <= baseline_distance + 1.0e-12,
@@ -811,39 +960,59 @@ mod tests {
 
     #[test]
     fn sweep_result_is_stable_under_final_zero_momentum_projection() {
-        let region_b = TargetRegion {
-            potential_energy: -11.47,
-            allowed_deviation: 0.01,
-        };
-        let delta_t = 0.01;
-        let number_of_steps = 500;
+        let config = TransitionTuningConfig::builder()
+            .number_of_steps(NonZeroUsize::new(500).expect("non-zero"))
+            .impulse_sweeps(NonZeroUsize::new(2).expect("non-zero"))
+            .build()
+            .expect("valid config");
 
         let start = Ensemble::new_groundstate_kicked_towards_fig3(0.8);
-        let result = tune_particle_impulses_by_sweeps_for_region_b(
-            start,
-            region_b,
-            delta_t,
-            number_of_steps,
-            2,
-            0.08,
-            0.10,
-            2,
-        )
-        .expect("valid sweep tuning parameters should produce a result");
+        let result = config.tune_particle_impulses_by_sweeps_for_region_b(start);
 
-        let tuned_distance =
-            terminal_distance_to_region_b(&result.best_start, region_b, delta_t, number_of_steps);
+        let tuned_distance = terminal_distance_to_region_b(
+            &result.best_start,
+            config.region_b,
+            config.delta_t,
+            config.number_of_steps.get(),
+        );
 
         let mut projected_again = result.best_start.clone();
         enforce_zero_net_momentum(&mut projected_again);
-        let projected_again_distance =
-            terminal_distance_to_region_b(&projected_again, region_b, delta_t, number_of_steps);
+        let projected_again_distance = terminal_distance_to_region_b(
+            &projected_again,
+            config.region_b,
+            config.delta_t,
+            config.number_of_steps.get(),
+        );
 
         assert!(
             projected_again_distance <= tuned_distance + 1.0e-12,
             "final zero-momentum projection worsened result: tuned={} projected={}",
             tuned_distance,
             projected_again_distance
+        );
+    }
+
+    #[test]
+    fn builder_rejects_invalid_float_parameters() {
+        let err = TransitionTuningConfig::builder()
+            .delta_t(0.0)
+            .initial_step(-0.1)
+            .length_step_fraction(0.0)
+            .build()
+            .expect_err("invalid config should fail");
+
+        assert!(
+            err.errors
+                .contains(&TuningConfigErrorKind::DeltaTInvalid(0.0))
+        );
+        assert!(
+            err.errors
+                .contains(&TuningConfigErrorKind::InitialStepInvalid(-0.1))
+        );
+        assert!(
+            err.errors
+                .contains(&TuningConfigErrorKind::LengthStepFractionInvalid(0.0))
         );
     }
 }

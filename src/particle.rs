@@ -124,7 +124,7 @@ impl Ensemble {
         });
         let angle_triangle = std::f64::consts::FRAC_PI_6;
         particles.push(Particle {
-            x: -angle_triangle.sin() * r * 3.0,
+            x: angle_triangle.sin() * r * 3.0,
             y: angle_triangle.cos() * r,
             p_x: 0.0,
             p_y: 0.0,
@@ -289,6 +289,21 @@ impl Ensemble {
             write!(writer, "{} {} ", particle.x, particle.y)?;
         }
         writeln!(writer)
+    }
+
+    pub fn write_gnuplot_positions<W: Write>(&self, mut writer: W) -> std::io::Result<()> {
+        writeln!(writer, "set t x11")?;
+        writeln!(writer, "set xlabel 'x'")?;
+        writeln!(writer, "set ylabel 'y'")?;
+
+        writeln!(writer, "$data << EOF")?;
+
+        for particle in self.particles.iter()
+        {
+            writeln!(writer, "{} {}", particle.x, particle.y)?;
+        }
+        writeln!(writer, "EOF")?;
+        writeln!(writer, "p $data")
     }
 
     pub fn random_wiggle<R: RngExt + ?Sized>(

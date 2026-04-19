@@ -9,10 +9,10 @@ const MIN_R_2: f64 = 1.0e-12;
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct Particle {
-    x: f64,
-    y: f64,
-    p_x: f64,
-    p_y: f64,
+    pub x: f64,
+    pub y: f64,
+    pub p_x: f64,
+    pub p_y: f64,
 }
 
 impl Particle {
@@ -64,7 +64,7 @@ fn force(x1: f64, x2: f64, y1: f64, y2: f64) -> f64 {
 
 #[derive(Clone, Debug)]
 pub struct Ensemble {
-    particles: Vec<Particle>,
+    pub particles: Vec<Particle>,
     current_time: f64,
 }
 

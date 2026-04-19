@@ -28,12 +28,22 @@ struct SearchOutcome {
 impl TransitionPathState {
     pub fn try_init(
         ensemble: Ensemble,
-        region_a: TargetRegion,
-        region_b: TargetRegion,
+        mut region_a: TargetRegion,
+        mut region_b: TargetRegion,
         delta_t: f64,
         number_of_steps: usize,
         number_of_restarts: usize,
+        recursion: u16,
     ) -> Option<Self> {
+        let factor = 1.2f64.powi(recursion as i32);
+        let old_region_a_allowed_deviation = region_a.allowed_deviation;
+        let old_region_b_allowed_deviation = region_b.allowed_deviation;
+        //region_a.allowed_deviation *=  factor;
+        region_b.allowed_deviation *= factor;
+        dbg!(recursion);
+        dbg!(region_a);
+        dbg!(region_b);
+
         if !delta_t.is_finite() || delta_t <= 0.0 || number_of_steps == 0 || number_of_restarts == 0
         {
             return None;
@@ -55,14 +65,28 @@ impl TransitionPathState {
         );
 
         if global_best_distance <= 0.0 {
+            region_a.allowed_deviation = old_region_a_allowed_deviation;
+            region_b.allowed_deviation = old_region_b_allowed_deviation;
             println!("try_init: initial state already reaches region B");
-            return Some(Self {
-                ensemble: initial_start,
-                region_a,
-                region_b,
-                delta_t,
-                number_of_steps,
-            });
+            if recursion == 0 {
+                return Some(Self {
+                    ensemble: initial_start,
+                    region_a,
+                    region_b,
+                    delta_t,
+                    number_of_steps,
+                });
+            } else {
+                return TransitionPathState::try_init(
+                    global_best_start,
+                    region_a,
+                    region_b,
+                    delta_t,
+                    number_of_steps,
+                    number_of_restarts,
+                    recursion - 1,
+                );
+            }
         }
 
         let num_cpu_threads = std::thread::available_parallelism()
@@ -124,13 +148,29 @@ impl TransitionPathState {
                     "try_init: success in restart {} after {} attempts",
                     success_outcome.restart, success_outcome.attempts_used
                 );
-                return Some(Self {
-                    ensemble: success_start,
-                    region_a,
-                    region_b,
-                    delta_t,
-                    number_of_steps,
-                });
+
+                region_a.allowed_deviation = old_region_a_allowed_deviation;
+                region_b.allowed_deviation = old_region_b_allowed_deviation;
+
+                if recursion == 0 {
+                    return Some(Self {
+                        ensemble: success_start,
+                        region_a,
+                        region_b,
+                        delta_t,
+                        number_of_steps,
+                    });
+                } else {
+                    return TransitionPathState::try_init(
+                        success_start,
+                        region_a,
+                        region_b,
+                        delta_t,
+                        number_of_steps,
+                        number_of_restarts,
+                        recursion - 1,
+                    );
+                }
             }
         }
 
@@ -147,14 +187,29 @@ impl TransitionPathState {
             final_distance
         );
 
+        region_a.allowed_deviation = old_region_a_allowed_deviation;
+        region_b.allowed_deviation = old_region_b_allowed_deviation;
+
         if final_distance <= 0.0 {
-            return Some(Self {
-                ensemble: global_best_start,
-                region_a,
-                region_b,
-                delta_t,
-                number_of_steps: final_steps,
-            });
+            if recursion == 0 {
+                return Some(Self {
+                    ensemble: global_best_start,
+                    region_a,
+                    region_b,
+                    delta_t,
+                    number_of_steps: final_steps,
+                });
+            } else {
+                return TransitionPathState::try_init(
+                    global_best_start,
+                    region_a,
+                    region_b,
+                    delta_t,
+                    number_of_steps,
+                    number_of_restarts,
+                    recursion - 1,
+                );
+            }
         }
 
         println!(

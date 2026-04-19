@@ -12,7 +12,7 @@ fn main() {
     println!("{energy}");
     let file = std::fs::File::create("test.gp").unwrap();
     let buf = BufWriter::new(file);
-    ensemble.write_gnuplot_positions(buf);
+    ensemble.write_gnuplot_positions(buf).unwrap();
 
     // let mut ensemble = Ensemble::new(1.1185 + 0.5);
     // let file = std::fs::File::create("test.dat").unwrap();
@@ -24,23 +24,25 @@ fn main() {
     //     }
     // }
 
-    // let ensemble = Ensemble::new_groundstate();
-    // let region_a = TargetRegion {
-    //     potential_energy: -12.53,
-    //     allowed_deviation: 0.3,
-    // };
-    // let region_b = TargetRegion {
-    //     potential_energy: -11.5,
-    //     allowed_deviation: 0.3,
-    // };
-    // let transition_state =
-    //     TransitionPathState::try_init(ensemble, region_a, region_b, 0.001, 10_000, 48)
-    //         .expect("could not initialize transition path state");
+    let mut ensemble = Ensemble::new_groundstate();
+    let region_a = TargetRegion {
+        potential_energy: -12.53,
+        allowed_deviation: 0.01,
+    };
+    let region_b = TargetRegion {
+        potential_energy: -11.47,
+        allowed_deviation: 0.01,
+    };
+    ensemble.particles[0].p_x = 0.2;
+    let transition_state =
+        TransitionPathState::try_init(ensemble, region_a, region_b, 0.01, 20_000, 48, 25)
+            .expect("could not initialize transition path state");
 
-    // println!("start H = {}", transition_state.ensemble.hamiltonian());
-    // println!("start V = {}", transition_state.ensemble.potential_energy());
 
-    // let file = std::fs::File::create("test.dat").unwrap();
-    // let buf = BufWriter::new(file);
-    // transition_state.ensemble.write_positions(buf).unwrap();
+    println!("start H = {}", transition_state.ensemble.hamiltonian());
+    println!("start V = {}", transition_state.ensemble.potential_energy());
+
+    let file = std::fs::File::create("test.dat").unwrap();
+    let buf = BufWriter::new(file);
+    transition_state.ensemble.write_positions(buf).unwrap();
 }

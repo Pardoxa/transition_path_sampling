@@ -24,7 +24,6 @@ fn main() {
     //     }
     // }
 
-    let mut ensemble = Ensemble::new_groundstate();
     let region_a = TargetRegion {
         potential_energy: -12.53,
         allowed_deviation: 0.01,
@@ -33,11 +32,43 @@ fn main() {
         potential_energy: -11.47,
         allowed_deviation: 0.01,
     };
-    ensemble.particles[0].p_x = 0.2;
+    let gradient_descent_iterations = 20;
+    let tuning = tune_fig3_kick_scale_for_region_b(
+        region_b,
+        0.01,
+        20_000,
+        0.2,
+        0.05,
+        gradient_descent_iterations,
+    )
+    .expect("could not tune figure-3 kick scale");
+
+    println!(
+        "best kick scale = {}, best terminal distance to region B = {}",
+        tuning.best_scale, tuning.best_distance
+    );
+
+    let impulse_sweeps = 2;
+    let sweep_tuning = tune_particle_impulses_by_sweeps_for_region_b(
+        tuning.best_start,
+        region_b,
+        0.01,
+        20_000,
+        impulse_sweeps,
+        0.08,
+        0.10,
+    )
+    .expect("could not tune per-particle impulses");
+
+    println!(
+        "best post-sweep distance to region B = {} after {} sweeps",
+        sweep_tuning.best_distance, sweep_tuning.sweeps_completed
+    );
+
+    let ensemble = sweep_tuning.best_start;
     let transition_state =
         TransitionPathState::try_init(ensemble, region_a, region_b, 0.01, 20_000, 48, 25)
             .expect("could not initialize transition path state");
-
 
     println!("start H = {}", transition_state.ensemble.hamiltonian());
     println!("start V = {}", transition_state.ensemble.potential_energy());

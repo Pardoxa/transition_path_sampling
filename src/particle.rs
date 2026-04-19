@@ -176,6 +176,26 @@ impl Ensemble {
         ensemble
     }
 
+    /// Returns a groundstate ensemble whose impulses are kicked toward the
+    /// figure-3 geometry, scaled by `kick_scale`.
+    ///
+    /// Particle positions are exactly the same as `new_groundstate`; only
+    /// `p_x/p_y` are modified.
+    pub fn new_groundstate_kicked_towards_fig3(kick_scale: f64) -> Self {
+        let mut ensemble = Self::new_groundstate();
+        if ensemble.particles.is_empty() {
+            return ensemble;
+        }
+
+        let kick_vectors = groundstate_to_fig3_kick_vectors(&ensemble.particles);
+        for (particle, [dx, dy]) in ensemble.particles.iter_mut().zip(kick_vectors.into_iter()) {
+            particle.p_x = dx * kick_scale;
+            particle.p_y = dy * kick_scale;
+        }
+
+        ensemble
+    }
+
     // Angenommen ich bin in der Nähe eines Minimums.
     // Dann sollte ich durch: Bewegungsgleichung ein bisschen verfolgen
     // + impuls abschneiden näher zum Minimum kommen.
@@ -392,6 +412,102 @@ impl Ensemble {
     }
 }
 
+/// Builds per-particle kick vectors from the groundstate geometry toward the
+/// figure-3 geometry using a minimum-cost one-to-one assignment.
+///
+/// The returned vectors are zero-mean so the total momentum is zero after
+/// applying them with a common scalar.
+fn groundstate_to_fig3_kick_vectors(groundstate_particles: &[Particle]) -> Vec<[f64; 2]> {
+    let fig3 = Ensemble::minimum_fig3();
+    let assignment = best_particle_assignment(groundstate_particles, &fig3.particles);
+
+    let mut vectors: Vec<[f64; 2]> = groundstate_particles
+        .iter()
+        .enumerate()
+        .map(|(source_idx, source)| {
+            let target = &fig3.particles[assignment[source_idx]];
+            [target.x - source.x, target.y - source.y]
+        })
+        .collect();
+
+    let count = vectors.len() as f64;
+    let [sum_x, sum_y] = vectors
+        .iter()
+        .fold([0.0, 0.0], |[acc_x, acc_y], [x, y]| [acc_x + x, acc_y + y]);
+    let mean_x = sum_x / count;
+    let mean_y = sum_y / count;
+
+    vectors.iter_mut().for_each(|[x, y]| {
+        *x -= mean_x;
+        *y -= mean_y;
+    });
+
+    vectors
+}
+
+/// Computes total squared-distance assignment cost between two particle sets.
+fn assignment_cost(from: &[Particle], to: &[Particle], assignment: &[usize]) -> f64 {
+    from.iter()
+        .zip(assignment.iter())
+        .map(|(source, &target_idx)| {
+            let target = &to[target_idx];
+            let dx = source.x - target.x;
+            let dy = source.y - target.y;
+            dx * dx + dy * dy
+        })
+        .sum()
+}
+
+/// Finds the minimum-cost one-to-one particle assignment by brute-force
+/// permutation search.
+fn best_particle_assignment(from: &[Particle], to: &[Particle]) -> Vec<usize> {
+    assert_eq!(from.len(), to.len());
+
+    let mut current_assignment: Vec<usize> = (0..from.len()).collect();
+    let mut best_assignment = current_assignment.clone();
+    let mut best_cost = assignment_cost(from, to, &current_assignment);
+
+    while next_permutation(&mut current_assignment) {
+        let current_cost = assignment_cost(from, to, &current_assignment);
+        if current_cost < best_cost {
+            best_cost = current_cost;
+            best_assignment = current_assignment.clone();
+        }
+    }
+
+    best_assignment
+}
+
+/// Advances to the next lexicographic permutation in-place.
+///
+/// Returns `false` when the input was the last permutation.
+fn next_permutation(permutation: &mut [usize]) -> bool {
+    if permutation.len() < 2 {
+        return false;
+    }
+
+    let mut pivot = permutation.len() - 2;
+    loop {
+        if permutation[pivot] < permutation[pivot + 1] {
+            break;
+        }
+        if pivot == 0 {
+            permutation.reverse();
+            return false;
+        }
+        pivot -= 1;
+    }
+
+    let mut successor = permutation.len() - 1;
+    while permutation[successor] <= permutation[pivot] {
+        successor -= 1;
+    }
+
+    permutation.swap(pivot, successor);
+    permutation[pivot + 1..].reverse();
+    true
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MomentumRegionError {
     InvalidTargetRegion,
@@ -407,4 +523,70 @@ pub enum MomentumRegionError {
 pub struct TargetRegion {
     pub potential_energy: f64,
     pub allowed_deviation: f64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn point(x: f64, y: f64) -> Particle {
+        Particle {
+            x,
+            y,
+            p_x: 0.0,
+            p_y: 0.0,
+        }
+    }
+
+    #[test]
+    fn brute_force_assignment_finds_exact_permutation_match() {
+        let source = vec![
+            point(0.0, 0.0),
+            point(2.0, 1.0),
+            point(-1.5, 3.0),
+            point(4.2, -2.0),
+            point(-3.0, 1.3),
+            point(0.7, -4.1),
+            point(5.5, 2.7),
+        ];
+
+        let permutation = [3usize, 0, 6, 2, 5, 1, 4];
+        let target: Vec<_> = permutation.iter().map(|&idx| source[idx]).collect();
+
+        let assignment = best_particle_assignment(&source, &target);
+        let total_cost = assignment_cost(&source, &target, &assignment);
+
+        assert!(
+            total_cost <= 1.0e-12,
+            "expected near-zero cost, got {total_cost}"
+        );
+
+        for (source_idx, &target_idx) in assignment.iter().enumerate() {
+            let src = source[source_idx];
+            let dst = target[target_idx];
+            assert!((src.x - dst.x).abs() <= 1.0e-12);
+            assert!((src.y - dst.y).abs() <= 1.0e-12);
+        }
+    }
+
+    #[test]
+    fn kicked_groundstate_keeps_positions_and_zero_net_momentum() {
+        let ground = Ensemble::new_groundstate();
+        let kicked = Ensemble::new_groundstate_kicked_towards_fig3(0.2);
+
+        for (a, b) in ground.particles.iter().zip(kicked.particles.iter()) {
+            assert!((a.x - b.x).abs() <= 1.0e-12);
+            assert!((a.y - b.y).abs() <= 1.0e-12);
+        }
+
+        let [sum_px, sum_py] = kicked
+            .particles
+            .iter()
+            .fold([0.0, 0.0], |[acc_x, acc_y], p| {
+                [acc_x + p.p_x, acc_y + p.p_y]
+            });
+
+        assert!(sum_px.abs() <= 1.0e-12, "sum_px not near zero: {sum_px}");
+        assert!(sum_py.abs() <= 1.0e-12, "sum_py not near zero: {sum_py}");
+    }
 }

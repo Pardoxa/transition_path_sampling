@@ -3,6 +3,9 @@ name = "transition_path"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+kick_tuning_trace = []
+
 [dependencies]
 rand = "0.10"
 rand_pcg = "0.10.1"

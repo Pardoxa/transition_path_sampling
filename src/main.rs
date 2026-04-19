@@ -7,7 +7,6 @@ use particle::*;
 use transition_path_state::*;
 
 fn main() {
-
     let ensemble = Ensemble::minimum_fig3();
     let energy = ensemble.hamiltonian();
     println!("{energy}");

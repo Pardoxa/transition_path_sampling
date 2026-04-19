@@ -298,8 +298,7 @@ impl Ensemble {
 
         writeln!(writer, "$data << EOF")?;
 
-        for particle in self.particles.iter()
-        {
+        for particle in self.particles.iter() {
             writeln!(writer, "{} {}", particle.x, particle.y)?;
         }
         writeln!(writer, "EOF")?;

@@ -634,6 +634,10 @@ fn enforce_zero_net_momentum(ensemble: &mut Ensemble) {
     let mean_px = sum_px / count;
     let mean_py = sum_py / count;
 
+    if mean_px.abs() <= 1.0e-14 && mean_py.abs() <= 1.0e-14 {
+        return;
+    }
+
     for particle in ensemble.particles.iter_mut() {
         particle.p_x -= mean_px;
         particle.p_y -= mean_py;

@@ -32,7 +32,7 @@ fn main() {
         potential_energy: -11.47,
         allowed_deviation: 0.01,
     };
-    let gradient_descent_iterations = 20;
+    let gradient_descent_iterations = 30;
     let tuning = tune_fig3_kick_scale_for_region_b(
         region_b,
         0.01,
